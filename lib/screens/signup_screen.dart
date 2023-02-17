@@ -1,8 +1,16 @@
+import 'dart:convert';
+
+import 'package:a2d_app/models/auth_model.dart';
 import 'package:a2d_app/providers/app_providers.dart';
+import 'package:a2d_app/screens/home_screen.dart';
+import 'package:a2d_app/screens/success_screen.dart';
+import 'package:a2d_app/services/keys.dart';
+import 'package:a2d_app/services/storage_services.dart';
 import 'package:a2d_app/styles.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -21,9 +29,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
   late TextEditingController _passController;
-  late bool buttonStatus;
+  late bool buttonStatus, isChecked;
   String countryName = '';
-  late bool isObscure = false, emailValid = false;
+  late bool isObscure = false, emailValid = false, isLoading = false;
 
   @override
   void initState() {
@@ -32,6 +40,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _emailController = TextEditingController();
     _passController = TextEditingController();
     buttonStatus = false;
+    isChecked = false;
     super.initState();
   }
 
@@ -44,16 +53,151 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
-  void buttonEnabled() {
+  void signUpButtonEnabled() {
     buttonStatus = (_nameController.text.isNotEmpty &&
             _phoneController.text.isNotEmpty &&
             _passController.text.isNotEmpty &&
             _emailController.text.isNotEmpty &&
-            countryName.isNotEmpty)
+            countryName.isNotEmpty &&
+            emailValid == true)
         ? true
         : false;
     print(buttonStatus);
     setState(() {});
+  }
+
+  void loginButtonEnabled() {
+    buttonStatus = (_passController.text.isNotEmpty &&
+            _emailController.text.isNotEmpty &&
+            emailValid == true &&
+            isChecked == true)
+        ? true
+        : false;
+    print(buttonStatus);
+    setState(() {});
+  }
+
+  String capitalize(String s) => s[0].toUpperCase() + s.substring(1);
+
+  Future<void> signUp({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    required String inputtedCountry,
+    required BuildContext context,
+  }) async {
+    setState(() {
+      isLoading = true;
+    });
+    try {
+      final reqBody = jsonEncode({
+        Keys.name: name,
+        Keys.email: email,
+        Keys.phone: phone,
+        Keys.password: password,
+        Keys.country: inputtedCountry,
+      });
+      print(reqBody);
+      final res = await http.post(
+        Uri.parse("${Keys.apiURL}/create-user"),
+        body: reqBody,
+        headers: {
+          "accept": "application/json",
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+      );
+
+      if (res.statusCode == 201) {
+        SignUpModel data = SignUpModel.fromJson(
+          jsonDecode(res.body),
+        );
+
+        StorageServices.setName(data.name!);
+        StorageServices.setEmail(data.email!);
+        StorageServices.setPhone(data.phone!);
+        StorageServices.setPassword(data.pass!);
+        StorageServices.setCountry(data.country!);
+        StorageServices.setId(data.id!);
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (nextPageContext) => const SuccessScreen(),
+          ),
+        );
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.onBoardingColour1,
+            content: Text(
+              capitalize(jsonDecode(res.body)["message"]),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print(e);
+    }
+  }
+
+  Future<void> login({
+    required String email,
+    required String password,
+    required bool remember,
+  }) async {
+    setState(() {
+      isLoading = true;
+    });
+    try {
+      final reqBody = jsonEncode({
+        Keys.email: email,
+        Keys.password: password,
+      });
+
+      final res = await http.post(
+        Uri.parse("${Keys.apiURL}/login"),
+        body: reqBody,
+        headers: {
+          "accept": "application/json",
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+      );
+
+      if (res.statusCode == 201) {
+        LoginModel data = LoginModel.fromJson(jsonDecode(res.body));
+        StorageServices.setToken(data.token!);
+        StorageServices.setEmail(data.email!);
+        StorageServices.setId2(data.id2!);
+        StorageServices.setCityId(data.cityId!);
+
+        StorageServices.setSignStatus(remember);
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (nextPageContext) => HomeScreen(),
+          ),
+        );
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.onBoardingColour1,
+            content: Text(
+              capitalize(jsonDecode(res.body)[Keys.msg]),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print(e);
+    }
   }
 
   @override
@@ -74,7 +218,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 SizedBox(
                   height: size.height / 15,
                 ),
-                Image.asset("assets/auth-logo.png"),
+                if (widget.pageIndex == 0 || widget.pageIndex == 1)
+                  Image.asset("assets/auth-logo.png"),
 
                 //SIGNUP FIELDS
                 if (widget.pageIndex == 0)
@@ -91,7 +236,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           controller: _nameController,
                           keyboard: TextInputType.name,
                         ),
-                        SizedBox(
+                        const SizedBox(
                           height: 25,
                         ),
                         detailsField(
@@ -99,7 +244,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           controller: _phoneController,
                           keyboard: TextInputType.phone,
                         ),
-                        SizedBox(
+                        const SizedBox(
                           height: 25,
                         ),
                         Consumer<AppProviders>(
@@ -119,7 +264,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                   onSelect: ((country) {
                                     appProvider.countryNameFunc(country.name);
                                     countryName = appProvider.countryName;
-                                    buttonEnabled();
+                                    signUpButtonEnabled();
                                     setState(() {});
                                   }),
                                 );
@@ -166,7 +311,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             );
                           },
                         ),
-                        SizedBox(
+                        const SizedBox(
                           height: 25,
                         ),
                         detailsField(
@@ -174,7 +319,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           controller: _emailController,
                           keyboard: TextInputType.emailAddress,
                         ),
-                        SizedBox(
+                        const SizedBox(
                           height: 25,
                         ),
                         detailsField(
@@ -182,11 +327,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           controller: _passController,
                           keyboard: TextInputType.visiblePassword,
                         ),
-                        SizedBox(
+                        const SizedBox(
                           height: 25,
                         ),
                         GestureDetector(
-                          onTap: (() {}),
+                          onTap: (() async {
+                            FocusManager.instance.primaryFocus?.unfocus();
+                            await signUp(
+                              name: _nameController.text,
+                              email: _emailController.text,
+                              phone: _phoneController.text,
+                              password: _passController.text,
+                              inputtedCountry: countryName,
+                              context: context,
+                            );
+                          }),
                           child: Container(
                             width: size.width + 20,
                             height: 50,
@@ -198,14 +353,18 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                   : null,
                               borderRadius: BorderRadius.circular(15),
                             ),
-                            child: const Center(
-                              child: Text(
-                                "SignUp",
-                                style: TextStyle(
-                                  color: AppColors.white,
-                                  fontSize: 16,
-                                ),
-                              ),
+                            child: Center(
+                              child: (isLoading)
+                                  ? CircularProgressIndicator(
+                                      color: AppColors.white,
+                                    )
+                                  : Text(
+                                      "SignUp",
+                                      style: TextStyle(
+                                        color: AppColors.white,
+                                        fontSize: 16,
+                                      ),
+                                    ),
                             ),
                           ),
                         ),
@@ -231,7 +390,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           controller: _emailController,
                           keyboard: TextInputType.emailAddress,
                         ),
-                        SizedBox(
+                        const SizedBox(
                           height: 25,
                         ),
                         detailsField(
@@ -239,8 +398,73 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           controller: _passController,
                           keyboard: TextInputType.visiblePassword,
                         ),
+                        const SizedBox(
+                          height: 20,
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            Checkbox(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              side: MaterialStateBorderSide.resolveWith(
+                                (states) => const BorderSide(
+                                  width: 0.5,
+                                ),
+                              ),
+                              value: isChecked,
+                              onChanged: ((checked) {
+                                StorageServices.setSignStatus(checked!);
+                                setState(() {
+                                  isChecked = checked;
+                                });
+                                loginButtonEnabled();
+                              }),
+                            ),
+                            Text("Remember me"),
+                          ],
+                        ),
+                        const SizedBox(
+                          height: 20,
+                        ),
+                        GestureDetector(
+                          onTap: (() {
+                            FocusManager.instance.primaryFocus?.unfocus();
+                            login(
+                              email: _emailController.text,
+                              password: _passController.text,
+                              remember: isChecked,
+                            );
+                          }),
+                          child: Container(
+                            width: size.width + 20,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              gradient:
+                                  (buttonStatus) ? AppColors.appGradient : null,
+                              color: (!buttonStatus)
+                                  ? AppColors.disableButtonColour
+                                  : null,
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: Center(
+                              child: (isLoading)
+                                  ? CircularProgressIndicator(
+                                      color: AppColors.white,
+                                    )
+                                  : Text(
+                                      "Login",
+                                      style: TextStyle(
+                                        color: AppColors.white,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
                         SizedBox(
-                          height: size.height / 3,
+                          height: size.height / 8,
                         )
                       ],
                     ),
@@ -267,6 +491,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               _nameController.clear();
                               _phoneController.clear();
                               widget.pageIndex = 1;
+                              buttonStatus = false;
+                              isObscure = true;
                             });
                           }),
                           child: Text(
@@ -299,6 +525,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               _emailController.clear();
                               _passController.clear();
                               widget.pageIndex = 0;
+                              emailValid = false;
+                              isObscure = true;
                             });
                           }),
                           child: Text(
@@ -312,7 +540,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ],
                   ),
                 SizedBox(
-                  height: 50,
+                  height: size.height / 20,
                 ),
               ],
             ),
@@ -333,7 +561,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
       controller: controller,
       keyboardType: keyboard,
       onChanged: ((text) {
-        buttonEnabled();
+        if (widget.pageIndex == 0) {
+          signUpButtonEnabled();
+        }
+        if (widget.pageIndex == 1) {
+          loginButtonEnabled();
+        }
         if (hint == "Email") {
           emailValid = RegExp(
                   r'^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$')
