@@ -39,7 +39,9 @@ dependencies:
   animated_splash_screen:
   page_transition:
   country_picker:
-  provider: 
+  provider:
+  intl:
+  http:
 
 dev_dependencies:
   flutter_test:
